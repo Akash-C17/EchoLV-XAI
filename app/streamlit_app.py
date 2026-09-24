@@ -1,84 +1,137 @@
 import streamlit as st
 import torch
-from PIL import Image
 import numpy as np
 import time
+from pathlib import Path
+from PIL import Image
 
 from src.utils.config import load_config
 from src.segmentation.unet import UNet
 from src.classification.models import EchoClassifier
-from src.preprocessing.image_preprocessing import preprocess_image_and_mask
+from src.segmentation.inference import predict_mask
+from src.classification.inference import predict as cls_predict
 from src.preprocessing.roi_processing import extract_roi, apply_mask
-from src.explainability.gradcam import GradCAM
+from src.explainability.gradcam import GradCAM, get_target_layer
 from src.explainability.visualization import generate_overlay
 
-# Page Config
-st.set_page_config(page_title="LV-XAI Echocardiography", layout="wide")
+st.set_page_config(
+    page_title="LV-XAI Echocardiography",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-st.title("LV-XAI Echocardiography")
-st.markdown("""
-**This system is an experimental research prototype and is not intended for clinical diagnosis or treatment decisions.**
-""")
+st.title("LV-XAI Echocardiography Analysis")
+
+st.warning(
+    "This system is an experimental research prototype and is not intended for "
+    "clinical diagnosis or treatment decisions."
+)
+
+# Sidebar
+with st.sidebar:
+    st.header("Configuration")
+    cls_mode = st.selectbox("Classification Mode", ["full", "crop", "masked"])
+    class_names = st.text_input("Class Names (comma-separated)", "Normal,Abnormal")
+    class_list = [c.strip() for c in class_names.split(",")]
 
 @st.cache_resource
 def load_models():
     config = load_config("config.yaml")
     device = torch.device("cpu")
-    
-    # Dummy load for demonstration (replace with actual path)
-    seg_model = UNet(1, 1).to(device)
+    seg_cfg = config.values["segmentation"]
+    cls_cfg = config.values["classification"]
+
+    seg_model = UNet(seg_cfg["input_channels"], seg_cfg["output_channels"]).to(device)
     seg_model.eval()
-    
-    cls_model = EchoClassifier(2, pretrained=False).to(device)
+
+    cls_model = EchoClassifier(
+        num_classes=cls_cfg["num_classes"], pretrained=False
+    ).to(device)
     cls_model.eval()
-    
-    return seg_model, cls_model, device
 
-seg_model, cls_model, device = load_models()
+    seg_model_path = config.path("models") / "segmentation" / f"best_{seg_cfg['model']}.pth"
+    cls_model_path = config.path("models") / "classification" / f"best_{cls_mode}_resnet18.pth"
 
-uploaded_file = st.file_uploader("Upload Echocardiographic Image", type=["png", "jpg", "jpeg", "bmp"])
+    if seg_model_path.exists():
+        seg_model.load_state_dict(torch.load(seg_model_path, map_location=device))
+    else:
+        st.sidebar.warning("Segmentation model weights not found. Using untrained model.")
 
-if uploaded_file is not None:
-    st.write("### Processing...")
-    progress = st.progress(0)
-    
-    # 1. Load Image
-    image = Image.open(uploaded_file).convert("L")
-    img_tensor = torch.tensor(np.array(image.resize((256, 256)))).unsqueeze(0).unsqueeze(0).float() / 255.0
-    progress.progress(25)
-    
-    # 2. Segmentation
-    with torch.no_grad():
-        seg_logits = seg_model(img_tensor)
-        mask_pred = (torch.sigmoid(seg_logits) > 0.5).squeeze().numpy() * 255
-        mask_img = Image.fromarray(mask_pred.astype(np.uint8))
-    progress.progress(50)
-    
-    # 3. ROI
-    roi_img = extract_roi(image, mask_img) or image
-    progress.progress(75)
-    
-    # 4. Classification & XAI (Mocked forward pass for UI rendering)
-    cls_tensor = torch.tensor(np.array(roi_img.resize((224, 224)))).unsqueeze(0).unsqueeze(0).float() / 255.0
-    with torch.no_grad():
-        cls_logits = cls_model(cls_tensor)
-        probs = torch.softmax(cls_logits, dim=1).squeeze().numpy()
-        pred_class = np.argmax(probs)
-    progress.progress(100)
-    
-    # Display
+    if cls_model_path.exists():
+        cls_model.load_state_dict(torch.load(cls_model_path, map_location=device))
+    else:
+        st.sidebar.warning("Classification model weights not found. Using untrained model.")
+
+    target_layer = get_target_layer(cls_model, "resnet18")
+    gradcam = GradCAM(cls_model, target_layer)
+
+    return seg_model, cls_model, gradcam, config, device
+
+seg_model, cls_model, gradcam, config, device = load_models()
+
+# File Upload
+uploaded = st.file_uploader(
+    "Upload Echocardiographic Image",
+    type=["png", "jpg", "jpeg", "bmp", "tif", "tiff"]
+)
+
+if uploaded is not None:
+    t_start = time.time()
+    original = Image.open(uploaded).convert("L")
+
+    seg_size = config.values["segmentation"].get("segmentation_image_size", 256)
+    cls_size = config.values["data"]["image_size"]
+    threshold = config.values["segmentation"]["threshold"]
+
+    progress = st.progress(0, text="Running segmentation...")
+
+    # Segmentation
+    mask_arr = predict_mask(seg_model, original, (seg_size, seg_size), threshold, device)
+    mask_pil = Image.fromarray(mask_arr)
+    progress.progress(33, text="Extracting ROI...")
+
+    # ROI
+    if cls_mode == "crop":
+        input_img = extract_roi(original, mask_pil) or original
+    elif cls_mode == "masked":
+        input_img = apply_mask(original, mask_pil)
+    else:
+        input_img = original
+    progress.progress(55, text="Classifying...")
+
+    # Classification
+    result = cls_predict(cls_model, input_img, (cls_size, cls_size), device, class_list)
+    progress.progress(75, text="Generating Grad-CAM...")
+
+    # Grad-CAM
+    arr = np.array(input_img.resize((cls_size, cls_size))) / 255.0
+    tensor = torch.tensor(arr, dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(device)
+    heatmap, _ = gradcam(tensor, target_class=result["predicted_class"])
+    img_uint8 = np.array(input_img.resize((cls_size, cls_size))).astype(np.uint8)
+    overlay = generate_overlay(img_uint8, heatmap)
+    progress.progress(100, text="Done.")
+
+    elapsed = time.time() - t_start
+
+    # Results display
     st.markdown("---")
-    st.header("LV SEGMENTATION")
+    st.header("LV Segmentation")
     col1, col2, col3 = st.columns(3)
-    col1.image(image, caption="Original Image")
-    col2.image(mask_img, caption="Predicted LV Mask")
-    col3.image(roi_img, caption="Extracted LV ROI")
-    
+    col1.image(original, caption="Original Image", use_container_width=True)
+    col2.image(mask_pil, caption="Predicted LV Mask", use_container_width=True)
+    col3.image(input_img, caption=f"Input to Classifier ({cls_mode})", use_container_width=True)
+
     st.markdown("---")
-    st.header("CLASSIFICATION")
-    st.success(f"Prediction: **Class {pred_class}**")
-    st.info(f"Confidence: **{probs[pred_class]*100:.1f}%**")
-    
+    st.header("Classification Result")
+    col_a, col_b = st.columns(2)
+    col_a.metric("Prediction", result["predicted_label"])
+    col_b.metric("Confidence", f"{result['confidence'] * 100:.1f}%")
+
     st.markdown("---")
-    st.header("EXPLAINABLE AI")
-    st.write("Grad-CAM and SHAP attribution maps would appear here.")
+    st.header("Explainable AI")
+    col_gc, col_ov = st.columns(2)
+    col_gc.image(heatmap, caption="Grad-CAM Heatmap", clamp=True, use_container_width=True)
+    col_ov.image(overlay, caption="Grad-CAM Overlay", use_container_width=True)
+
+    st.markdown("---")
+    st.caption(f"Processing time: {elapsed:.2f}s | Device: {device}")
