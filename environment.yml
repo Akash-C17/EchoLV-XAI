@@ -1,0 +1,15 @@
+name: lv-xai
+channels:
+  - pytorch
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy>=1.24
+  - pillow>=10.0
+  - pyyaml>=6.0
+  - pytest>=8.0
+  - pytorch>=2.1
+  - torchvision>=0.16
+  - pip
+  - pip:
+      - -r requirements.txt
