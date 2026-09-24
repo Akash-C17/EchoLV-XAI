@@ -13,19 +13,27 @@ This is an experimental research prototype and is not intended for clinical diag
 The primary research question addressed by this project is:
 **Can explicit left-ventricle segmentation improve the performance and anatomical interpretability of CNN-based classification of echocardiographic images?**
 
-The system compares three paradigms:
-1. Full Image Classification
-2. Cropped LV Classification
-3. Masked LV Classification
+The system evaluates and compares three experimental paradigms:
+1. **Full Image Classification:** Raw echocardiogram -> CNN
+2. **Cropped LV Classification:** Echocardiogram -> U-Net Segmentation -> Bounding Box ROI -> CNN
+3. **Masked LV Classification:** Echocardiogram -> U-Net Segmentation -> Background Zeroed -> CNN
 
-The classification predictions are then analyzed using Grad-CAM and SHAP to determine whether the model focuses on anatomically relevant structures.
+Explainable AI techniques (Grad-CAM and SHAP) are applied to determine whether the model focuses on anatomically relevant cardiac structures.
 
-## Environment Setup
+## System Architecture
 
-To run this project locally, ensure you have Python installed, then set up the environment:
+1. **Preprocessing & Segmentation:** Images are converted to grayscale and resized. A PyTorch U-Net (or U-Net++) segments the Left Ventricle.
+2. **ROI Extraction:** The segmentation mask defines a bounding box to isolate the LV.
+3. **Classification:** A ResNet-18 model predicts the pathology (or state) based on the input mode.
+4. **Explainability:** Feature embeddings are analyzed via PCA/t-SNE/UMAP. Grad-CAM and SHAP extract attention heatmaps and pixel attributions to validate clinical focus.
+
+## Installation
 
 ```bash
+git clone https://github.com/Akash-C17/EchoLV-XAI.git
+cd phase_1_project
 python -m venv .venv
+
 # On Windows:
 .venv\Scripts\Activate.ps1
 # On Linux/Mac:
@@ -35,41 +43,63 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-Note: The project supports CPU execution by default. For GPU training, ensure you install a CUDA-compatible PyTorch build separately.
+## Dataset Preparation
 
-## Configuration
+Datasets should not be tracked by Git. Place your data in the following directories as defined in `config.yaml`:
+- Segmentation data (e.g., CAMUS): `data/raw/segmentation/`
+- Classification data: `data/raw/classification/`
 
-Dataset locations, hyperparameters, and model configurations are managed via `config.yaml`. Dataset paths must be defined before running the pipelines.
-
-## Development Progress
-
-The project is structured into 10 development phases. Please refer to `IMPLEMENTATION_PLAN.md` for detailed information on each phase.
-
-**Current Status:** Phase 1 Complete.
-
-### Phase 1 Verification
-
-Validate the configuration schema:
+Create patient-level training splits to prevent data leakage:
 ```bash
-python -m src.utils.config --config config.yaml
+python -m src.data.split_dataset --config config.yaml
 ```
 
-Validate configured dataset files and locations:
+## Execution Commands
+
+### 1. Segmentation
+Train and evaluate the U-Net segmentation model:
 ```bash
-python -m src.data.dataset_validator --config config.yaml
+python -m src.segmentation.train --config config.yaml
+python -m src.segmentation.evaluate --config config.yaml
 ```
 
-Run the unit tests:
+### 2. Classification
+Train and evaluate the ResNet classifier. Use `--mode` to switch between `full`, `crop`, or `masked` paradigms:
 ```bash
-python -m pytest
+python -m src.classification.train --config config.yaml --mode full
+python -m src.classification.evaluate --config config.yaml --mode full
 ```
 
-## Project Architecture
+### 3. Explainability & Features
+Extract CNN features and run dimensionality reduction (PCA, t-SNE, UMAP):
+```bash
+python -m src.features.extractor --config config.yaml --mode full
+python -m src.features.feature_analysis --features_csv outputs/features/full/extracted_features.csv --output_dir outputs/figures/
+```
 
-- `app/` - Streamlit application components
-- `data/` - Dataset storage (raw and processed splits)
-- `models/` - Saved model checkpoints
-- `notebooks/` - Research and exploration notebooks
-- `outputs/` - Generated figures, logs, and outputs
-- `src/` - Core Python modules
-- `tests/` - Unit testing suite
+### 4. Streamlit Application
+Launch the interactive web application to visualize the end-to-end inference pipeline:
+```bash
+streamlit run app/streamlit_app.py
+```
+
+## Project Structure
+
+- `app/` - Streamlit application (`streamlit_app.py`)
+- `data/` - Dataset directories and patient-level CSV splits
+- `models/` - Saved PyTorch weights (`.pth`)
+- `notebooks/` - Research notebooks for dataset exploration
+- `outputs/` - Generated metrics, XAI heatmaps, and dimensionality reduction plots
+- `src/` - Core Python modules (preprocessing, segmentation, classification, features, explainability, evaluation)
+- `tests/` - Pytest validation suite
+- `IMPLEMENTATION_PLAN.md` - Phase-by-phase development roadmap
+
+## Results & Tables
+
+*(To be filled upon completing clinical evaluations)*
+
+| Model Paradigm | Accuracy | Precision | Recall | F1 Score | AUC |
+|----------------|----------|-----------|--------|----------|-----|
+| Full Image | - | - | - | - | - |
+| Cropped LV | - | - | - | - | - |
+| Masked LV | - | - | - | - | - |
