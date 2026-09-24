@@ -5,6 +5,9 @@ import time
 from pathlib import Path
 from PIL import Image
 
+import sys
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
 from src.utils.config import load_config
 from src.segmentation.unet import UNet
 from src.classification.models import EchoClassifier
