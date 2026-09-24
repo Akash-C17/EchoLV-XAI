@@ -1,79 +1,75 @@
-# LV-XAI
+# EchoLV-XAI
 
-Research scaffold for explainable left-ventricle segmentation and classification
-from echocardiographic images.
+Explainable AI-Based Left Ventricle Segmentation and CNN Classification from Echocardiographic Images using Grad-CAM and SHAP.
 
-This repository currently contains **Phase 1 only**:
+This repository contains an experimental research prototype for left-ventricle segmentation, LV-focused CNN classification, and Explainable AI (XAI) analysis from echocardiographic images.
 
-- Configuration loading and validation
-- Reproducible random seed setup
-- Structured logging
-- Dataset structure and file-integrity validation
-- Project directory scaffold
+## Medical Disclaimer
 
-Segmentation, classification, Grad-CAM, SHAP, and clinical evaluation are
-intentionally not implemented yet.
+This is an experimental research prototype and is not intended for clinical diagnosis or treatment decisions. No clinical performance is claimed by this scaffold.
 
-## Medical disclaimer
+## Research Objectives
 
-This is an experimental research prototype and is not intended for clinical
-diagnosis or treatment decisions. No clinical performance is claimed by this
-scaffold.
+The primary research question addressed by this project is:
+**Can explicit left-ventricle segmentation improve the performance and anatomical interpretability of CNN-based classification of echocardiographic images?**
 
-## Environment setup
+The system compares three paradigms:
+1. Full Image Classification
+2. Cropped LV Classification
+3. Masked LV Classification
 
-```powershell
+The classification predictions are then analyzed using Grad-CAM and SHAP to determine whether the model focuses on anatomically relevant structures.
+
+## Environment Setup
+
+To run this project locally, ensure you have Python installed, then set up the environment:
+
+```bash
 python -m venv .venv
+# On Windows:
 .venv\Scripts\Activate.ps1
+# On Linux/Mac:
+source .venv/bin/activate
+
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-The project supports CPU execution. Install a CUDA-compatible PyTorch build
-separately when GPU training is required.
+Note: The project supports CPU execution by default. For GPU training, ensure you install a CUDA-compatible PyTorch build separately.
 
 ## Configuration
 
-Edit [config.yaml](config.yaml) to point to the actual datasets. Dataset files
-must not be fabricated or copied into this repository. The validator accepts
-image files and, when configured, paired segmentation masks.
+Dataset locations, hyperparameters, and model configurations are managed via `config.yaml`. Dataset paths must be defined before running the pipelines.
 
-## Verify Phase 1
+## Development Progress
 
-Validate the configuration:
+The project is structured into 10 development phases. Please refer to `IMPLEMENTATION_PLAN.md` for detailed information on each phase.
 
-```powershell
+**Current Status:** Phase 1 Complete.
+
+### Phase 1 Verification
+
+Validate the configuration schema:
+```bash
 python -m src.utils.config --config config.yaml
 ```
 
-Validate configured dataset locations:
-
-```powershell
+Validate configured dataset files and locations:
+```bash
 python -m src.data.dataset_validator --config config.yaml
 ```
 
 Run the unit tests:
-
-```powershell
+```bash
 python -m pytest
 ```
 
-The validator reports missing directories, unsupported files, unreadable image
-files, duplicate content, missing masks, and image/mask dimension mismatches.
-It returns a non-zero exit status when configured paths are missing or errors
-are found. An empty dataset is reported as a warning because the real dataset
-has not been supplied yet.
+## Project Architecture
 
-## Planned phases
-
-1. Project structure, configuration, environment, and dataset validation
-2. Dataset exploration, patient-level splitting, preprocessing, and visualization
-3. U-Net segmentation and evaluation
-4. LV ROI extraction
-5. Transfer-learning classification
-6. Feature extraction and analysis
-7. Grad-CAM
-8. SHAP
-9. XAI validation, error analysis, and ablation
-10. Inference, Streamlit, tests, and research outputs
-
+- `app/` - Streamlit application components
+- `data/` - Dataset storage (raw and processed splits)
+- `models/` - Saved model checkpoints
+- `notebooks/` - Research and exploration notebooks
+- `outputs/` - Generated figures, logs, and outputs
+- `src/` - Core Python modules
+- `tests/` - Unit testing suite
